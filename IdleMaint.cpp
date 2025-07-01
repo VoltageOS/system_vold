@@ -423,17 +423,17 @@ int32_t GetStorageLifeTime() {
     std::string lifeTimeBasePath = path + "/health_descriptor/life_time_estimation_";
 
     int32_t lifeTime = getLifeTime(lifeTimeBasePath + "c");
-    if (lifeTime != -1) {
-        return lifeTime;
-    }
+    if (lifeTime == -1) {
+        int32_t lifeTimeA = getLifeTime(lifeTimeBasePath + "a");
+        int32_t lifeTimeB = getLifeTime(lifeTimeBasePath + "b");
+        lifeTime = std::max(lifeTimeA, lifeTimeB);
+        if (lifeTime <= 0) {
+            return -1;
+        }
 
-    int32_t lifeTimeA = getLifeTime(lifeTimeBasePath + "a");
-    int32_t lifeTimeB = getLifeTime(lifeTimeBasePath + "b");
-    lifeTime = std::max(lifeTimeA, lifeTimeB);
-    if (lifeTime != -1) {
-        return lifeTime == 0 ? -1 : lifeTime * 10;
+        lifeTime = lifeTime * 10;
     }
-    return -1;
+    return lifeTime;
 }
 
 int32_t GetStorageRemainingLifetime() {
