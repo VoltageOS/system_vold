@@ -407,6 +407,7 @@ Status cp_prepareCheckpoint() {
                 TEMP_FAILURE_RETRY(open(mount_rec.mount_point.c_str(), O_RDONLY | O_CLOEXEC)));
             if (fd == -1) {
                 PLOG(ERROR) << "Failed to open mount point" << mount_rec.mount_point;
+                isBow = false;
                 continue;
             }
 
@@ -415,6 +416,7 @@ Status cp_prepareCheckpoint() {
             nsecs_t start = systemTime(SYSTEM_TIME_BOOTTIME);
             if (ioctl(fd, FITRIM, &range)) {
                 PLOG(ERROR) << "Failed to trim " << mount_rec.mount_point;
+                isBow = false;
                 continue;
             }
             nsecs_t time = systemTime(SYSTEM_TIME_BOOTTIME) - start;
