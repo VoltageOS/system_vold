@@ -182,19 +182,19 @@ void notifyCheckpointListeners() {
 Status cp_commitChanges() {
     std::lock_guard<std::mutex> lock(isCheckpointingLock);
 
-    if (!isCheckpointing) {
-        return Status::ok();
-    }
     if (android::base::GetProperty("persist.vold.dont_commit_checkpoint", "0") == "1") {
         LOG(WARNING)
                 << "NOT COMMITTING CHECKPOINT BECAUSE persist.vold.dont_commit_checkpoint IS 1";
         return Status::ok();
     }
+
     auto module = BootControlClient::WaitForService();
+
     if (module) {
         auto cr = module->MarkBootSuccessful();
-        if (!cr.success)
+        if (!cr.success) {
             return error(EINVAL, "Error marking booted successfully: " + std::string(cr.errMsg));
+        }
         LOG(INFO) << "Marked slot as booted successfully.";
         // Clears the warm reset flag for next reboot.
         if (!SetProperty("ota.warm_reset", "0")) {
@@ -202,6 +202,11 @@ Status cp_commitChanges() {
         }
     } else {
         LOG(ERROR) << "Failed to get BootControl HAL, not marking slot as successful.";
+    }
+
+    if (!isCheckpointing) {
+        LOG(INFO) << "NOT COMMITTING CHECKPOINT BECAUSE isCheckpointing == false";
+        return Status::ok();
     }
     // Must take action for list of mounted checkpointed things here
     // To do this, we walk the list of mounted file systems.
@@ -407,6 +412,7 @@ Status cp_prepareCheckpoint() {
                     TEMP_FAILURE_RETRY(open(mount_rec.mount_point.c_str(), O_RDONLY | O_CLOEXEC)));
             if (fd == -1) {
                 PLOG(ERROR) << "Failed to open mount point" << mount_rec.mount_point;
+                isBow = false;
                 continue;
             }
 
@@ -415,6 +421,7 @@ Status cp_prepareCheckpoint() {
             nsecs_t start = systemTime(SYSTEM_TIME_BOOTTIME);
             if (ioctl(fd, FITRIM, &range)) {
                 PLOG(ERROR) << "Failed to trim " << mount_rec.mount_point;
+                isBow = false;
                 continue;
             }
             nsecs_t time = systemTime(SYSTEM_TIME_BOOTTIME) - start;
