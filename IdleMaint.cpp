@@ -65,6 +65,7 @@ enum class IdleMaintStats {
 
 static const char* kWakeLock = "IdleMaint";
 static const int DIRTY_SEGMENTS_THRESHOLD = 100;
+
 /*
  * Timing policy:
  *  1. F2FS_GC = 7 mins
@@ -84,6 +85,10 @@ static IdleMaintStats idle_maint_stat(IdleMaintStats::kStopped);
 static std::condition_variable cv_abort, cv_stop;
 static std::mutex cv_m;
 
+static bool isSupportedFsType(const std::string& fs_type) {
+    return fs_type == "ext4" || fs_type == "f2fs";
+}
+
 static void addFromVolumeManager(std::list<std::string>* paths, PathTypes path_type) {
     VolumeManager* vm = VolumeManager::Instance();
     std::list<std::string> privateIds;
@@ -94,11 +99,11 @@ static void addFromVolumeManager(std::list<std::string>* paths, PathTypes path_t
             if (path_type == PathTypes::kMountPoint) {
                 paths->push_back(vol->getPath());
             } else if (path_type == PathTypes::kBlkDevice) {
-                std::string gc_path;
+                std::string blk_path;
                 const std::string& fs_type = vol->getFsType();
-                if (fs_type == "f2fs" && (Realpath(vol->getRawDmDevPath(), &gc_path) ||
-                                          Realpath(vol->getRawDevPath(), &gc_path))) {
-                    paths->push_back(std::string("/sys/fs/") + fs_type + "/" + Basename(gc_path));
+                if (isSupportedFsType(fs_type) && (Realpath(vol->getRawDmDevPath(), &blk_path) ||
+                                                   Realpath(vol->getRawDevPath(), &blk_path))) {
+                    paths->push_back(std::string("/sys/fs/") + fs_type + "/" + Basename(blk_path));
                 }
             }
         }
@@ -141,7 +146,7 @@ static void addFromFstab(std::list<std::string>* paths, PathTypes path_type, boo
             paths->push_back(entry.mount_point);
         } else if (path_type == PathTypes::kBlkDevice) {
             std::string path;
-            if (entry.fs_type == "f2fs" &&
+            if (isSupportedFsType(entry.fs_type) &&
                 Realpath(android::vold::BlockDeviceForPath(entry.mount_point + "/"), &path)) {
                 paths->push_back("/sys/fs/" + entry.fs_type + "/" + Basename(path));
             }
@@ -418,17 +423,17 @@ int32_t GetStorageLifeTime() {
     std::string lifeTimeBasePath = path + "/health_descriptor/life_time_estimation_";
 
     int32_t lifeTime = getLifeTime(lifeTimeBasePath + "c");
-    if (lifeTime != -1) {
-        return lifeTime;
-    }
+    if (lifeTime == -1) {
+        int32_t lifeTimeA = getLifeTime(lifeTimeBasePath + "a");
+        int32_t lifeTimeB = getLifeTime(lifeTimeBasePath + "b");
+        lifeTime = std::max(lifeTimeA, lifeTimeB);
+        if (lifeTime <= 0) {
+            return -1;
+        }
 
-    int32_t lifeTimeA = getLifeTime(lifeTimeBasePath + "a");
-    int32_t lifeTimeB = getLifeTime(lifeTimeBasePath + "b");
-    lifeTime = std::max(lifeTimeA, lifeTimeB);
-    if (lifeTime != -1) {
-        return lifeTime == 0 ? -1 : lifeTime * 10;
+        lifeTime = lifeTime * 10;
     }
-    return -1;
+    return lifeTime;
 }
 
 int32_t GetStorageRemainingLifetime() {
