@@ -134,6 +134,7 @@ cc_library_static {
         "MoveStorage.cpp",
         "NetlinkHandler.cpp",
         "NetlinkManager.cpp",
+        "NvmeDeviceUtils.cpp",
         "Process.cpp",
         "Utils.cpp",
         "VendorVoldNativeService.cpp",
