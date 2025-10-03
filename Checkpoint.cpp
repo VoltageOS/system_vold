@@ -177,7 +177,32 @@ void notifyCheckpointListeners() {
     listeners = std::vector<android::sp<android::system::vold::IVoldCheckpointListener>>();
 }
 
-bool NeedsCheckpoint() EXCLUSIVE_LOCKS_REQUIRED(isCheckpointingLock);
+bool NeedsCheckpoint() EXCLUSIVE_LOCKS_REQUIRED(isCheckpointingLock) {
+    // Make sure we only return true during boot. See b/138952436 for discussion
+    if (needsCheckpointWasCalled) return isCheckpointing;
+    needsCheckpointWasCalled = true;
+
+    bool ret;
+    std::string content;
+    auto module = BootControlClient::WaitForService();
+
+    if (isCheckpointing) return true;
+
+    // In case of INVALID slot or other failures, we do not perform checkpoint.
+    if (module && !module->IsSlotMarkedSuccessful(module->GetCurrentSlot()).value_or(true)) {
+        isCheckpointing = true;
+        return true;
+    }
+    ret = android::base::ReadFileToString(kMetadataCPFile, &content);
+    if (ret && content != "0") {
+        isCheckpointing = true;
+        return true;
+    }
+
+    // Leave isCheckpointing false and notify listeners now that we know we don't need one
+    notifyCheckpointListeners();
+    return false;
+}
 
 }  // namespace
 
@@ -320,37 +345,6 @@ bool cp_needsCheckpoint() {
     std::lock_guard<std::mutex> lock(isCheckpointingLock);
     return NeedsCheckpoint();
 }
-
-namespace {
-
-bool NeedsCheckpoint() EXCLUSIVE_LOCKS_REQUIRED(isCheckpointingLock) {
-    // Make sure we only return true during boot. See b/138952436 for discussion
-    if (needsCheckpointWasCalled) return isCheckpointing;
-    needsCheckpointWasCalled = true;
-
-    bool ret;
-    std::string content;
-    auto module = BootControlClient::WaitForService();
-
-    if (isCheckpointing) return true;
-
-    // In case of INVALID slot or other failures, we do not perform checkpoint.
-    if (module && !module->IsSlotMarkedSuccessful(module->GetCurrentSlot()).value_or(true)) {
-        isCheckpointing = true;
-        return true;
-    }
-    ret = android::base::ReadFileToString(kMetadataCPFile, &content);
-    if (ret && content != "0") {
-        isCheckpointing = true;
-        return true;
-    }
-
-    // Leave isCheckpointing false and notify listeners now that we know we don't need one
-    notifyCheckpointListeners();
-    return false;
-}
-
-}  // namespace
 
 Status cp_isCheckpointing(bool& result) NO_THREAD_SAFETY_ANALYSIS {
     if (!needsCheckpointWasCalled) {
