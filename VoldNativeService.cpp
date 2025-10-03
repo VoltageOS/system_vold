@@ -764,8 +764,7 @@ binder::Status VoldNativeService::isCheckpointing(bool* _aidl_return) {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_LOCK;
 
-    *_aidl_return = cp_isCheckpointing();
-    return Ok();
+    return cp_isCheckpointing(*_aidl_return);
 }
 
 binder::Status VoldNativeService::commitChanges() {
@@ -838,8 +837,7 @@ binder::Status VoldNativeService::resetCheckpoint() {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_LOCK;
 
-    cp_resetCheckpoint();
-    return Ok();
+    return cp_resetCheckpoint();
 }
 
 static void initializeIncFs() {

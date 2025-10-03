@@ -164,7 +164,6 @@ volatile bool needsCheckpointWasCalled GUARDED_BY(isCheckpointingLock) = false;
 std::mutex listenersLock ACQUIRED_AFTER(isCheckpointingLock);
 std::vector<android::sp<android::system::vold::IVoldCheckpointListener>> listeners
         GUARDED_BY(listenersLock);
-}  // namespace
 
 void notifyCheckpointListeners() {
     std::lock_guard<std::mutex> lock(listenersLock);
@@ -177,6 +176,10 @@ void notifyCheckpointListeners() {
     // Reclaim vector memory; we likely won't need it again.
     listeners = std::vector<android::sp<android::system::vold::IVoldCheckpointListener>>();
 }
+
+bool NeedsCheckpoint() EXCLUSIVE_LOCKS_REQUIRED(isCheckpointingLock);
+
+}  // namespace
 
 Status cp_commitChanges() {
     LOG(INFO) << "cp_commitChanges called";
@@ -205,6 +208,12 @@ Status cp_commitChanges() {
         LOG(ERROR) << "Failed to get BootControl HAL, not marking slot as successful.";
     }
 
+    if (!needsCheckpointWasCalled) {
+        LOG(ERROR) << "commitChanges called before needsCheckpoint/prepareCheckpoint";
+        return error(
+                EINVAL,
+                "needsCheckpoint and/or prepareCheckpoint must be called before commitChanges.");
+    }
     if (!isCheckpointing) {
         LOG(INFO) << "NOT COMMITTING CHECKPOINT BECAUSE isCheckpointing == false";
         return Status::ok();
@@ -309,7 +318,12 @@ bool cp_needsCheckpoint() {
     LOG(INFO) << "cp_needsCheckpoint called";
 
     std::lock_guard<std::mutex> lock(isCheckpointingLock);
+    return NeedsCheckpoint();
+}
 
+namespace {
+
+bool NeedsCheckpoint() EXCLUSIVE_LOCKS_REQUIRED(isCheckpointingLock) {
     // Make sure we only return true during boot. See b/138952436 for discussion
     if (needsCheckpointWasCalled) return isCheckpointing;
     needsCheckpointWasCalled = true;
@@ -336,8 +350,15 @@ bool cp_needsCheckpoint() {
     return false;
 }
 
-bool cp_isCheckpointing() NO_THREAD_SAFETY_ANALYSIS {
-    return isCheckpointing;
+}  // namespace
+
+Status cp_isCheckpointing(bool& result) NO_THREAD_SAFETY_ANALYSIS {
+    if (!needsCheckpointWasCalled) {
+        return error(EINVAL, "needsCheckpoint must be called before isCheckpointing.");
+    }
+
+    result = isCheckpointing;
+    return Status::ok();
 }
 
 namespace {
@@ -358,11 +379,18 @@ static void cp_healthDaemon(std::string mnt_pnt, std::string blk_device, bool is
             GetUintProperty(kMinFreeBytesProp, min_free_bytes_default, (uint64_t)-1);
     bool commit_on_full = GetBoolProperty(kCommitOnFullProp, commit_on_full_default);
 
+    auto keepLooping = []() NO_THREAD_SAFETY_ANALYSIS -> bool {
+        // Technically, in between loop iterations, the client could resetCheckpoint, then
+        // prepareCheckpoint again and this daemon would keep running even though the new checkpoint
+        // would have created its own daemon, but it's not a problem to have two running at once.
+        return needsCheckpointWasCalled && isCheckpointing;
+    };
+
     struct timespec req;
     req.tv_sec = msleeptime / 1000;
     msleeptime %= 1000;
     req.tv_nsec = msleeptime * 1000000;
-    while (cp_isCheckpointing()) {
+    while (keepLooping()) {
         uint64_t free_bytes = 0;
         if (is_fs_cp) {
             statvfs(mnt_pnt.c_str(), &data);
@@ -397,7 +425,7 @@ Status cp_prepareCheckpoint() {
     // Log to notify CTS - see b/137924328 for context
     LOG(INFO) << "cp_prepareCheckpoint called";
     std::lock_guard<std::mutex> lock(isCheckpointingLock);
-    if (!isCheckpointing) {
+    if (!NeedsCheckpoint()) {
         return Status::ok();
     }
 
@@ -829,9 +857,18 @@ Status cp_markBootAttempt() {
     return Status::ok();
 }
 
-void cp_resetCheckpoint() {
+Status cp_resetCheckpoint() {
     std::lock_guard<std::mutex> lock(isCheckpointingLock);
+    if (!needsCheckpointWasCalled) {
+        return Status::ok();
+    }
+
+    if (isCheckpointing) {
+        return error(EINVAL, "Can't reset checkpoint while a checkpoint is in progress.");
+    }
+
     needsCheckpointWasCalled = false;
+    return Status::ok();
 }
 
 bool cp_registerCheckpointListener(
