@@ -33,6 +33,7 @@
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
 #include <android-base/properties.h>
+#include <android-base/thread_annotations.h>
 #include <android-base/unique_fd.h>
 #include <cutils/android_reboot.h>
 #include <fcntl.h>
@@ -154,17 +155,15 @@ Status cp_startCheckpoint(int retry) {
 
 namespace {
 
-volatile bool isCheckpointing = false;
-volatile bool isBow = true;
-
-volatile bool needsCheckpointWasCalled = false;
-
-// Protects isCheckpointing, needsCheckpointWasCalled and code that makes decisions based on status
-// of isCheckpointing
 std::mutex isCheckpointingLock;
 
-std::mutex listenersLock;
-std::vector<android::sp<android::system::vold::IVoldCheckpointListener>> listeners;
+volatile bool isCheckpointing GUARDED_BY(isCheckpointingLock) = false;
+volatile bool isBow GUARDED_BY(isCheckpointingLock) = true;
+volatile bool needsCheckpointWasCalled GUARDED_BY(isCheckpointingLock) = false;
+
+std::mutex listenersLock ACQUIRED_AFTER(isCheckpointingLock);
+std::vector<android::sp<android::system::vold::IVoldCheckpointListener>> listeners
+        GUARDED_BY(listenersLock);
 }  // namespace
 
 void notifyCheckpointListeners() {
@@ -337,7 +336,7 @@ bool cp_needsCheckpoint() {
     return false;
 }
 
-bool cp_isCheckpointing() {
+bool cp_isCheckpointing() NO_THREAD_SAFETY_ANALYSIS {
     return isCheckpointing;
 }
 
@@ -363,7 +362,7 @@ static void cp_healthDaemon(std::string mnt_pnt, std::string blk_device, bool is
     req.tv_sec = msleeptime / 1000;
     msleeptime %= 1000;
     req.tv_nsec = msleeptime * 1000000;
-    while (isCheckpointing) {
+    while (cp_isCheckpointing()) {
         uint64_t free_bytes = 0;
         if (is_fs_cp) {
             statvfs(mnt_pnt.c_str(), &data);
