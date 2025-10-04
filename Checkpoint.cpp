@@ -157,9 +157,9 @@ namespace {
 
 std::mutex isCheckpointingLock;
 
-volatile bool isCheckpointing GUARDED_BY(isCheckpointingLock) = false;
-volatile bool isBow GUARDED_BY(isCheckpointingLock) = true;
-volatile bool needsCheckpointWasCalled GUARDED_BY(isCheckpointingLock) = false;
+bool isCheckpointing GUARDED_BY(isCheckpointingLock) = false;
+bool isBow GUARDED_BY(isCheckpointingLock) = true;
+bool needsCheckpointWasCalled GUARDED_BY(isCheckpointingLock) = false;
 
 std::mutex listenersLock ACQUIRED_AFTER(isCheckpointingLock);
 std::vector<android::sp<android::system::vold::IVoldCheckpointListener>> listeners
@@ -346,7 +346,8 @@ bool cp_needsCheckpoint() {
     return NeedsCheckpoint();
 }
 
-Status cp_isCheckpointing(bool& result) NO_THREAD_SAFETY_ANALYSIS {
+Status cp_isCheckpointing(bool& result) {
+    std::lock_guard<std::mutex> lock(isCheckpointingLock);
     if (!needsCheckpointWasCalled) {
         return error(EINVAL, "needsCheckpoint must be called before isCheckpointing.");
     }
@@ -373,10 +374,14 @@ static void cp_healthDaemon(std::string mnt_pnt, std::string blk_device, bool is
             GetUintProperty(kMinFreeBytesProp, min_free_bytes_default, (uint64_t)-1);
     bool commit_on_full = GetBoolProperty(kCommitOnFullProp, commit_on_full_default);
 
-    auto keepLooping = []() NO_THREAD_SAFETY_ANALYSIS -> bool {
+    auto keepLooping = []() -> bool {
+        // Need to lock to read needsCheckpointWasCalled and isCheckpointing, but we don't need to
+        // hold the lock during the body of the loop.
+        //
         // Technically, in between loop iterations, the client could resetCheckpoint, then
         // prepareCheckpoint again and this daemon would keep running even though the new checkpoint
         // would have created its own daemon, but it's not a problem to have two running at once.
+        std::lock_guard<std::mutex> lock(isCheckpointingLock);
         return needsCheckpointWasCalled && isCheckpointing;
     };
 
