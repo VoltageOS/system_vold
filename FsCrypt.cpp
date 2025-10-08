@@ -340,15 +340,9 @@ static bool install_storage_key(const std::string& mountpoint, const EncryptionO
         LOG(ERROR) << "EncryptionOptions not initialized";
         return false;
     }
-    KeyBuffer ephemeral_wrapped_key;
-    if (options.use_hw_wrapped_key) {
-        if (!exportWrappedStorageKey(key, &ephemeral_wrapped_key)) {
-            LOG(ERROR) << "Failed to get ephemeral wrapped key";
-            return false;
-        }
-    }
-    return installKey(mountpoint, options, options.use_hw_wrapped_key ? ephemeral_wrapped_key : key,
-                      policy);
+    KeyBuffer kernel_key;
+    if (!prepareKeyForUse(key, options.use_hw_wrapped_key, &kernel_key)) return false;
+    return installKey(mountpoint, options, kernel_key, policy);
 }
 
 // Retrieve the options to use for encryption policies on adoptable storage.

@@ -88,14 +88,26 @@ bool generateStorageKey(const KeyGeneration& gen, KeyBuffer* key) {
     }
 }
 
-bool exportWrappedStorageKey(const KeyBuffer& ksKey, KeyBuffer* key) {
+static bool prepareV0WrappedKeyForUse(const KeyBuffer& lt_key, KeyBuffer* kernel_key) {
     Keystore keystore;
     if (!keystore) return false;
     std::string key_temp;
 
-    if (!keystore.exportKey(ksKey, &key_temp)) return false;
-    *key = KeyBuffer(key_temp.size());
-    memcpy(reinterpret_cast<void*>(key->data()), key_temp.c_str(), key->size());
+    if (!keystore.exportKey(lt_key, &key_temp)) return false;
+    *kernel_key = KeyBuffer(key_temp.size());
+    memcpy(reinterpret_cast<void*>(kernel_key->data()), key_temp.c_str(), kernel_key->size());
+    return true;
+}
+
+bool prepareKeyForUse(const KeyBuffer& lt_key, bool use_hw_wrapped_key, KeyBuffer* kernel_key) {
+    if (use_hw_wrapped_key) {
+        if (!prepareV0WrappedKeyForUse(lt_key, kernel_key)) {
+            LOG(ERROR) << "Failed to get ephemeral wrapped key";
+            return false;
+        }
+        return true;
+    }
+    *kernel_key = lt_key;
     return true;
 }
 

@@ -161,14 +161,7 @@ static bool create_crypto_blk_dev(const std::string& dm_name, const std::string&
     *nr_sec &= ~7;
 
     KeyBuffer module_key;
-    if (options.use_hw_wrapped_key) {
-        if (!exportWrappedStorageKey(key, &module_key)) {
-            LOG(ERROR) << "Failed to get ephemeral wrapped key";
-            return false;
-        }
-    } else {
-        module_key = key;
-    }
+    if (!prepareKeyForUse(key, options.use_hw_wrapped_key, &module_key)) return false;
 
     KeyBuffer hex_key_buffer;
     if (android::vold::StrToHex(module_key, hex_key_buffer) != android::OK) {
