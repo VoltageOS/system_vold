@@ -131,7 +131,7 @@ static KeyGeneration makeGen(const EncryptionOptions& options) {
         LOG(ERROR) << "EncryptionOptions not initialized";
         return android::vold::neverGen();
     }
-    return KeyGeneration{FSCRYPT_MAX_KEY_SIZE, true, options.use_hw_wrapped_key};
+    return KeyGeneration{FSCRYPT_MAX_KEY_SIZE, true, options.key_type};
 }
 
 static KeyGeneration userdataKeyGen() {
@@ -345,7 +345,7 @@ static bool install_storage_key(const std::string& mountpoint, const EncryptionO
         return false;
     }
     KeyBuffer kernel_key;
-    if (!prepareKeyForUse(key, options.use_hw_wrapped_key, &kernel_key)) return false;
+    if (!prepareKeyForUse(key, options.key_type, &kernel_key)) return false;
     return installKey(mountpoint, options, kernel_key, policy);
 }
 

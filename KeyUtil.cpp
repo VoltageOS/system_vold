@@ -38,16 +38,17 @@ namespace vold {
 
 using android::fscrypt::EncryptionOptions;
 using android::fscrypt::EncryptionPolicy;
+using android::fscrypt::KeyType;
 
 // This must be acquired before calling fscrypt ioctls that operate on keys.
 // This prevents race conditions between evicting and reinstalling keys.
 static std::mutex fscrypt_keyring_mutex;
 
 const KeyGeneration neverGen() {
-    return KeyGeneration{0, false, false};
+    return KeyGeneration{0, false, KeyType::kRaw};
 }
 
-static bool randomKey(size_t size, KeyBuffer* key) {
+static bool generateRawStorageKey(size_t size, KeyBuffer* key) {
     *key = KeyBuffer(size);
     if (ReadRandomBytes(key->size(), key->data()) != 0) {
         // TODO status_t plays badly with PLOG, fix it.
@@ -58,7 +59,7 @@ static bool randomKey(size_t size, KeyBuffer* key) {
 }
 
 // Generate wrapped storage key using keystore. Uses STORAGE_KEY tag in keystore.
-static bool generateWrappedStorageKey(KeyBuffer* key) {
+static bool generateV0WrappedStorageKey(KeyBuffer* key) {
     Keystore keystore;
     if (!keystore) return false;
     std::string key_temp;
@@ -75,17 +76,20 @@ bool generateStorageKey(const KeyGeneration& gen, KeyBuffer* key) {
         LOG(ERROR) << "Generating storage key not allowed";
         return false;
     }
-    if (gen.use_hw_wrapped_key) {
-        if (gen.keysize != FSCRYPT_MAX_KEY_SIZE) {
-            LOG(ERROR) << "Cannot generate a wrapped key " << gen.keysize << " bytes long";
-            return false;
-        }
-        LOG(DEBUG) << "Generating wrapped storage key";
-        return generateWrappedStorageKey(key);
-    } else {
-        LOG(DEBUG) << "Generating standard storage key";
-        return randomKey(gen.keysize, key);
+    switch (gen.key_type) {
+        case KeyType::kRaw:
+            LOG(DEBUG) << "Generating raw storage key";
+            return generateRawStorageKey(gen.keysize, key);
+        case KeyType::kHwWrappedV0:
+            if (gen.keysize != FSCRYPT_MAX_KEY_SIZE) {
+                LOG(ERROR) << "Cannot generate a wrapped key " << gen.keysize << " bytes long";
+                return false;
+            }
+            LOG(DEBUG) << "Generating v0 wrapped storage key";
+            return generateV0WrappedStorageKey(key);
     }
+    LOG(ERROR) << "Unknown KeyType";
+    return false;
 }
 
 static bool prepareV0WrappedKeyForUse(const KeyBuffer& lt_key, KeyBuffer* kernel_key) {
@@ -99,16 +103,20 @@ static bool prepareV0WrappedKeyForUse(const KeyBuffer& lt_key, KeyBuffer* kernel
     return true;
 }
 
-bool prepareKeyForUse(const KeyBuffer& lt_key, bool use_hw_wrapped_key, KeyBuffer* kernel_key) {
-    if (use_hw_wrapped_key) {
-        if (!prepareV0WrappedKeyForUse(lt_key, kernel_key)) {
-            LOG(ERROR) << "Failed to get ephemeral wrapped key";
-            return false;
-        }
-        return true;
+bool prepareKeyForUse(const KeyBuffer& lt_key, KeyType type, KeyBuffer* kernel_key) {
+    switch (type) {
+        case KeyType::kRaw:
+            *kernel_key = lt_key;
+            return true;
+        case KeyType::kHwWrappedV0:
+            if (!prepareV0WrappedKeyForUse(lt_key, kernel_key)) {
+                LOG(ERROR) << "Failed to get ephemeral wrapped key";
+                return false;
+            }
+            return true;
     }
-    *kernel_key = lt_key;
-    return true;
+    LOG(ERROR) << "Unknown KeyType";
+    return false;
 }
 
 // Get raw keyref - used to make keyname and to pass to ioctl
@@ -198,7 +206,13 @@ bool installKey(const std::string& mountpoint, const EncryptionOptions& options,
             return false;
     }
 
-    if (options.use_hw_wrapped_key) arg->__flags |= __FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED;
+    switch (options.key_type) {
+        case KeyType::kRaw:
+            break;
+        case KeyType::kHwWrappedV0:
+            arg->__flags |= __FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED;
+            break;
+    }
     // Provide the raw key.
     arg->raw_size = key.size();
     memcpy(arg->raw, key.data(), key.size());

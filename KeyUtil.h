@@ -33,7 +33,7 @@ namespace vold {
 struct KeyGeneration {
     size_t keysize;
     bool allow_gen;
-    bool use_hw_wrapped_key;
+    android::fscrypt::KeyType key_type;
 };
 
 // Generate a key as specified in KeyGeneration
@@ -49,7 +49,8 @@ const KeyGeneration neverGen();
 // should be passed to the kernel to en/decrypt the storage. If it's a raw key,
 // then this is just a copy of "lt_key". If it's a wrapped key, then "lt_key" is
 // re-wrapped with the ephemeral wrapping key.
-bool prepareKeyForUse(const KeyBuffer& lt_key, bool use_hw_wrapped_key, KeyBuffer* kernel_key);
+bool prepareKeyForUse(const KeyBuffer& lt_key, android::fscrypt::KeyType type,
+                      KeyBuffer* kernel_key);
 
 // Install a file-based encryption key to the kernel, for use by encrypted files
 // on the specified filesystem using the specified encryption policy version.
