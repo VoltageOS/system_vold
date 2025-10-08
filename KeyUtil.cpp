@@ -30,6 +30,7 @@
 #include <android-base/logging.h>
 
 #include "KeyStorage.h"
+#include "Keystore.h"
 #include "Utils.h"
 
 namespace android {
@@ -56,6 +57,19 @@ static bool randomKey(size_t size, KeyBuffer* key) {
     return true;
 }
 
+// Generate wrapped storage key using keystore. Uses STORAGE_KEY tag in keystore.
+static bool generateWrappedStorageKey(KeyBuffer* key) {
+    Keystore keystore;
+    if (!keystore) return false;
+    std::string key_temp;
+    auto paramBuilder = km::AuthorizationSetBuilder().AesEncryptionKey(AES_KEY_BYTES * 8);
+    paramBuilder.Authorization(km::TAG_STORAGE_KEY);
+    if (!keystore.generateKey(paramBuilder, &key_temp)) return false;
+    *key = KeyBuffer(key_temp.size());
+    memcpy(reinterpret_cast<void*>(key->data()), key_temp.c_str(), key->size());
+    return true;
+}
+
 bool generateStorageKey(const KeyGeneration& gen, KeyBuffer* key) {
     if (!gen.allow_gen) {
         LOG(ERROR) << "Generating storage key not allowed";
@@ -72,6 +86,17 @@ bool generateStorageKey(const KeyGeneration& gen, KeyBuffer* key) {
         LOG(DEBUG) << "Generating standard storage key";
         return randomKey(gen.keysize, key);
     }
+}
+
+bool exportWrappedStorageKey(const KeyBuffer& ksKey, KeyBuffer* key) {
+    Keystore keystore;
+    if (!keystore) return false;
+    std::string key_temp;
+
+    if (!keystore.exportKey(ksKey, &key_temp)) return false;
+    *key = KeyBuffer(key_temp.size());
+    memcpy(reinterpret_cast<void*>(key->data()), key_temp.c_str(), key->size());
+    return true;
 }
 
 // Get raw keyref - used to make keyname and to pass to ioctl

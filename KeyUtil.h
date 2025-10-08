@@ -44,6 +44,9 @@ bool generateStorageKey(const KeyGeneration& gen, KeyBuffer* key);
 // be generated.
 const KeyGeneration neverGen();
 
+// Export the per-boot boot wrapped storage key using keystore.
+bool exportWrappedStorageKey(const KeyBuffer& ksKey, KeyBuffer* key);
+
 // Install a file-based encryption key to the kernel, for use by encrypted files
 // on the specified filesystem using the specified encryption policy version.
 //
