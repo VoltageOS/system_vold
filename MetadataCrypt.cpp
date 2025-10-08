@@ -52,6 +52,7 @@ using android::base::Basename;
 using android::fs_mgr::FstabEntry;
 using android::fs_mgr::GetEntryForMountPoint;
 using android::fscrypt::GetFirstApiLevel;
+using android::fscrypt::KeyType;
 using android::vold::KeyBuffer;
 using namespace android::dm;
 using namespace std::chrono_literals;
@@ -61,7 +62,7 @@ struct CryptoOptions {
     struct CryptoType cipher = invalid_crypto_type;
     bool use_legacy_options_format = false;
     bool set_dun = true;  // Non-legacy driver always sets DUN
-    bool use_hw_wrapped_key = false;
+    KeyType key_type = KeyType::kRaw;
 };
 
 static const std::string kDmNameUserdata = "userdata";
@@ -81,7 +82,7 @@ static_assert(isValidCryptoType(64, legacy_aes_256_xts),
 
 // Returns KeyGeneration suitable for key as described in CryptoOptions
 const KeyGeneration makeGen(const CryptoOptions& options) {
-    return KeyGeneration{options.cipher.get_keysize(), true, options.use_hw_wrapped_key};
+    return KeyGeneration{options.cipher.get_keysize(), true, options.key_type};
 }
 
 void defaultkey_precreate_dm_device() {
@@ -161,14 +162,7 @@ static bool create_crypto_blk_dev(const std::string& dm_name, const std::string&
     *nr_sec &= ~7;
 
     KeyBuffer module_key;
-    if (options.use_hw_wrapped_key) {
-        if (!exportWrappedStorageKey(key, &module_key)) {
-            LOG(ERROR) << "Failed to get ephemeral wrapped key";
-            return false;
-        }
-    } else {
-        module_key = key;
-    }
+    if (!prepareKeyForUse(key, options.key_type, &module_key)) return false;
 
     KeyBuffer hex_key_buffer;
     if (android::vold::StrToHex(module_key, hex_key_buffer) != android::OK) {
@@ -181,7 +175,14 @@ static bool create_crypto_blk_dev(const std::string& dm_name, const std::string&
                                                        hex_key, blk_device, 0);
     if (options.use_legacy_options_format) target->SetUseLegacyOptionsFormat();
     if (options.set_dun) target->SetSetDun();
-    if (options.use_hw_wrapped_key) target->SetWrappedKeyV0();
+
+    switch (options.key_type) {
+        case KeyType::kRaw:
+            break;
+        case KeyType::kHwWrappedV0:
+            target->SetWrappedKeyV0();
+            break;
+    }
 
     DmTable table;
     table.AddTarget(std::move(target));
@@ -236,7 +237,7 @@ static bool parse_options(const std::string& options_string, CryptoOptions* opti
 
     if (parts.size() == 2) {
         if (parts[1] == "wrappedkey_v0") {
-            options->use_hw_wrapped_key = true;
+            options->key_type = KeyType::kHwWrappedV0;
         } else {
             LOG(ERROR) << "Invalid metadata encryption flag: " << parts[1];
             return false;
