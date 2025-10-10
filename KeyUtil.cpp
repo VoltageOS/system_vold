@@ -22,6 +22,7 @@
 #include <thread>
 
 #include <fcntl.h>
+#include <linux/blk-crypto.h>
 #include <linux/fscrypt.h>
 #include <openssl/sha.h>
 #include <sys/ioctl.h>
@@ -32,6 +33,7 @@
 #include "KeyStorage.h"
 #include "Keystore.h"
 #include "Utils.h"
+#include "VoldUtil.h"
 
 namespace android {
 namespace vold {
@@ -71,6 +73,43 @@ static bool generateV0WrappedStorageKey(KeyBuffer* key) {
     return true;
 }
 
+// This matches the limit used by the kernel internally as of v6.17.  It is enough for all known
+// wrapped key implementatations.  It can be increased in the future if needed.
+constexpr size_t BLK_CRYPTO_MAX_HW_WRAPPED_KEY_SIZE = 128;
+
+static bool generateWrappedStorageKey(KeyBuffer* key) {
+    // BLKCRYPTOGENERATEKEY requires a block device.  For now, just always use the "main" userdata
+    // block device, even if the userdata filesystem has multiple block devices or the key is being
+    // generated for adoptable storage instead of internal storage.  This provides parity with the
+    // original KeyMint based solution, which didn't differentiate between block devices.  All known
+    // wrapped key implementations used on Android devices have compatible keys between block
+    // devices, and they typically don't support adoptable storage anyway.  This could be changed
+    // later to pass in the correct volume's block device, but for now this is all that's needed.
+    std::string blk_device = GetUserDataBlockDevicePath();
+    if (blk_device.empty()) {
+        LOG(ERROR) << "Failed to get path to userdata block device";
+        return false;
+    }
+    android::base::unique_fd fd(open(blk_device.c_str(), O_RDONLY | O_CLOEXEC));
+    if (fd == -1) {
+        PLOG(ERROR) << "Failed to open " << blk_device << " to generate key";
+        return false;
+    }
+
+    key->resize(BLK_CRYPTO_MAX_HW_WRAPPED_KEY_SIZE);
+    struct blk_crypto_generate_key_arg arg = {
+            .lt_key_ptr = (uintptr_t)key->data(),
+            .lt_key_size = key->size(),
+    };
+
+    if (ioctl(fd, BLKCRYPTOGENERATEKEY, &arg) != 0) {
+        PLOG(ERROR) << "BLKCRYPTOGENERATEKEY failed on " << blk_device;
+        return false;
+    }
+    key->resize(arg.lt_key_size);
+    return true;
+}
+
 bool generateStorageKey(const KeyGeneration& gen, KeyBuffer* key) {
     if (!gen.allow_gen) {
         LOG(ERROR) << "Generating storage key not allowed";
@@ -87,6 +126,13 @@ bool generateStorageKey(const KeyGeneration& gen, KeyBuffer* key) {
             }
             LOG(DEBUG) << "Generating v0 wrapped storage key";
             return generateV0WrappedStorageKey(key);
+        case KeyType::kHwWrapped:
+            if (gen.keysize != FSCRYPT_MAX_KEY_SIZE) {
+                LOG(ERROR) << "Cannot generate a wrapped key " << gen.keysize << " bytes long";
+                return false;
+            }
+            LOG(DEBUG) << "Generating wrapped storage key";
+            return generateWrappedStorageKey(key);
     }
     LOG(ERROR) << "Unknown KeyType";
     return false;
@@ -103,6 +149,36 @@ static bool prepareV0WrappedKeyForUse(const KeyBuffer& lt_key, KeyBuffer* kernel
     return true;
 }
 
+static bool prepareWrappedKeyForUse(const KeyBuffer& lt_key, KeyBuffer* kernel_key) {
+    // As with generateWrappedStorageKey(), for now we always execute the ioctl on the main userdata
+    // block device and assume the keys are compatible across block devices.
+    std::string blk_device = GetUserDataBlockDevicePath();
+    if (blk_device.empty()) {
+        LOG(ERROR) << "Failed to get path to userdata block device";
+        return false;
+    }
+    android::base::unique_fd fd(open(blk_device.c_str(), O_RDONLY | O_CLOEXEC));
+    if (fd == -1) {
+        PLOG(ERROR) << "Failed to open " << blk_device << " to prepare key";
+        return false;
+    }
+
+    kernel_key->resize(BLK_CRYPTO_MAX_HW_WRAPPED_KEY_SIZE);
+    struct blk_crypto_prepare_key_arg arg = {
+            .lt_key_ptr = (uintptr_t)lt_key.data(),
+            .lt_key_size = lt_key.size(),
+            .eph_key_ptr = (uintptr_t)kernel_key->data(),
+            .eph_key_size = kernel_key->size(),
+    };
+
+    if (ioctl(fd, BLKCRYPTOPREPAREKEY, &arg) != 0) {
+        PLOG(ERROR) << "BLKCRYPTOPREPAREKEY failed on " << blk_device;
+        return false;
+    }
+    kernel_key->resize(arg.eph_key_size);
+    return true;
+}
+
 bool prepareKeyForUse(const KeyBuffer& lt_key, KeyType type, KeyBuffer* kernel_key) {
     switch (type) {
         case KeyType::kRaw:
@@ -114,6 +190,8 @@ bool prepareKeyForUse(const KeyBuffer& lt_key, KeyType type, KeyBuffer* kernel_k
                 return false;
             }
             return true;
+        case KeyType::kHwWrapped:
+            return prepareWrappedKeyForUse(lt_key, kernel_key);
     }
     LOG(ERROR) << "Unknown KeyType";
     return false;
@@ -210,7 +288,17 @@ bool installKey(const std::string& mountpoint, const EncryptionOptions& options,
         case KeyType::kRaw:
             break;
         case KeyType::kHwWrappedV0:
+            // With the "wrappedkey_v0" option, continue using the legacy Android-specific flag for
+            // backwards compatibility.  This field and flag were not reserved upstream, so their
+            // location and names were chosen to avoid colliding with future upstream changes.
+            //
+            // Note that the legacy and upstream flags select slightly different on-disk formats.
+            // So we can't just use the upstream one unconditionally.
             arg->__flags |= __FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED;
+            break;
+        case KeyType::kHwWrapped:
+            // With the "wrappedkey" option, use the upstream flag.
+            arg->flags |= FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED;
             break;
     }
     // Provide the raw key.

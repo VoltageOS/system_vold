@@ -180,6 +180,10 @@ static bool create_crypto_blk_dev(const std::string& dm_name, const std::string&
         case KeyType::kRaw:
             break;
         case KeyType::kHwWrappedV0:
+        case KeyType::kHwWrapped:
+            // The dm-default-key option "wrappedkey_v0" actually works for both wrapped key
+            // versions.  Eventually a "wrappedkey" alias should be added and used, but for now just
+            // continue using "wrappedkey_v0".
             target->SetWrappedKeyV0();
             break;
     }
@@ -238,6 +242,8 @@ static bool parse_options(const std::string& options_string, CryptoOptions* opti
     if (parts.size() == 2) {
         if (parts[1] == "wrappedkey_v0") {
             options->key_type = KeyType::kHwWrappedV0;
+        } else if (parts[1] == "wrappedkey") {
+            options->key_type = KeyType::kHwWrapped;
         } else {
             LOG(ERROR) << "Invalid metadata encryption flag: " << parts[1];
             return false;
