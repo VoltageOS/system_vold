@@ -255,6 +255,15 @@ static bool prepare_subdirs(const std::string& volume_uuid, int user_id, int fla
             if (!prepare_dir(sehandle, 0700, AID_SYSTEM, AID_SYSTEM, facedata_path)) {
                 return false;
             }
+            auto wifidata_path = vendor_ce_path + "/wifi";
+            if (!prepare_dir(sehandle, 0700, AID_WIFI, AID_WIFI, wifidata_path)) {
+                return false;
+            }
+
+            auto wpa_path = vendor_ce_path + "/wifi/wpa";
+            if (!prepare_dir(sehandle, 0700, AID_WIFI, AID_WIFI, wpa_path)) {
+                return false;
+            }
         }
     }
     return true;
