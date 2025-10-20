@@ -16,7 +16,7 @@
 
 package android.os;
 
-/** {@hide} */
+/** @hide */
 interface IVoldMountCallback {
     boolean onVolumeChecking(FileDescriptor fuseFd, @utf8InCpp String path,
         @utf8InCpp String internalPath);
