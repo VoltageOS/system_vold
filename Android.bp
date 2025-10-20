@@ -39,7 +39,6 @@ cc_defaults {
         "libfec_rs",
         "libfs_avb",
         "libfs_mgr",
-        "libsquashfs_utils",
         "libvold_binder",
         "android.system.vold-V1-cpp",
     ],
