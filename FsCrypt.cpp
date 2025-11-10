@@ -23,12 +23,9 @@
 #include "VoldUtil.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <map>
-#include <optional>
-#include <set>
-#include <sstream>
 #include <string>
-#include <vector>
 
 #include <dirent.h>
 #include <errno.h>
@@ -58,11 +55,18 @@
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 
+#include <android/os/casefoldingremover/ICasefoldingRemover.h>
+#include <binder/IServiceManager.h>
+
+using android::defaultServiceManager;
+using android::interface_cast;
+using android::String16;
 using android::base::Basename;
 using android::base::Realpath;
 using android::base::StartsWith;
 using android::base::StringPrintf;
 using android::fs_mgr::GetEntryForMountPoint;
+using android::os::casefoldingremover::ICasefoldingRemover;
 using android::vold::BuildDataPath;
 using android::vold::IsDotOrDotDot;
 using android::vold::IsFilesystemSupported;
@@ -571,6 +575,16 @@ bool fscrypt_initialize_systemwide_keys() {
     return true;
 }
 
+static void remove_casefolding_from_folder(std::string const& folder, std::string const& leaf) {
+    std::string original_folder = android::base::GetProperty("ro.casefolding.original_folder", "");
+    if (original_folder.empty()) return;
+
+    original_folder = StringPrintf("%s/%s", original_folder.c_str(), leaf.c_str());
+    interface_cast<ICasefoldingRemover>(
+            defaultServiceManager()->waitForService(String16("android.os.casefoldingremover")))
+            ->moveFolder(String16(original_folder.c_str()), String16(folder.c_str()));
+}
+
 static bool prepare_special_dirs() {
     // Ensure that /data/data and its "alias" /data/user/0 exist, and create the
     // bind mount of /data/data onto /data/user/0.  This *should* happen in
@@ -619,6 +633,7 @@ static bool prepare_special_dirs() {
     if (android::vold::pathExists(media_obb_dir)) {
         if (!prepare_dir(media_obb_dir, 0770, AID_MEDIA_RW, AID_MEDIA_RW)) return false;
     } else {
+        remove_casefolding_from_folder(media_obb_dir, "obb");
         if (!prepare_dir_with_policy(media_obb_dir, 0770, AID_MEDIA_RW, AID_MEDIA_RW,
                                      s_device_policy))
             return false;
@@ -1020,6 +1035,9 @@ bool fscrypt_prepare_user_storage(const std::string& volume_uuid, userid_t user_
         }
         if (!prepare_dir_with_policy(media_ce_path, 02770, AID_MEDIA_RW, AID_MEDIA_RW, ce_policy))
             return false;
+
+        remove_casefolding_from_folder(media_ce_path, StringPrintf("%u", user_id));
+
         // On devices without sdcardfs (kernel 5.4+), the path permissions aren't fixed
         // up automatically; therefore, use a default ACL, to ensure apps with MEDIA_RW
         // can keep reading external storage; in particular, this allows app cloning
