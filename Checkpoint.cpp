@@ -155,6 +155,8 @@ Status cp_startCheckpoint(int retry) {
 
 namespace {
 
+using ::android::system::vold::IVoldCheckpointListener;
+
 std::mutex isCheckpointingLock;
 
 bool isCheckpointing GUARDED_BY(isCheckpointingLock) = false;
@@ -162,19 +164,66 @@ bool isBow GUARDED_BY(isCheckpointingLock) = true;
 bool needsCheckpointWasCalled GUARDED_BY(isCheckpointingLock) = false;
 
 std::mutex listenersLock ACQUIRED_AFTER(isCheckpointingLock);
-std::vector<android::sp<android::system::vold::IVoldCheckpointListener>> listeners
-        GUARDED_BY(listenersLock);
+std::vector<android::sp<IVoldCheckpointListener>> listeners GUARDED_BY(listenersLock);
 
-void notifyCheckpointListeners() {
-    std::lock_guard<std::mutex> lock(listenersLock);
+class NotifyResults {
+  public:
+    enum class Result {
+        SUCCESS,
+        BINDER_DEAD,
+        CALL_FAILED,
+    };
 
-    for (auto& listener : listeners) {
-        listener->onCheckpointingComplete();
-        listener = nullptr;
+    size_t& operator[](Result result) {
+        switch (result) {
+            case Result::SUCCESS:
+                return success_;
+            case Result::BINDER_DEAD:
+                return binder_dead_;
+            case Result::CALL_FAILED:
+                return call_failed_;
+        }
     }
 
-    // Reclaim vector memory; we likely won't need it again.
-    listeners = std::vector<android::sp<android::system::vold::IVoldCheckpointListener>>();
+  private:
+    size_t success_ = 0;
+    size_t binder_dead_ = 0;
+    size_t call_failed_ = 0;
+};
+
+using NotifyResult = NotifyResults::Result;
+
+NotifyResult notifyCheckpointListener(android::sp<IVoldCheckpointListener>& listener) {
+    Status result = listener->onCheckpointingComplete();
+    if (!result.isOk()) {
+        if (result.transactionError() == DEAD_OBJECT) {
+            return NotifyResult::BINDER_DEAD;
+        }
+        LOG(DEBUG) << "onCheckpointingComplete call failed with: " << result;
+        return NotifyResult::CALL_FAILED;
+    }
+
+    return NotifyResult::SUCCESS;
+}
+
+void notifyCheckpointListeners() {
+    NotifyResults results;
+    {
+        std::lock_guard<std::mutex> lock(listenersLock);
+
+        for (auto& listener : listeners) {
+            NotifyResult result = notifyCheckpointListener(listener);
+            ++results[result];
+            listener = nullptr;
+        }
+
+        // Reclaim vector memory; we likely won't need it again.
+        listeners = std::vector<android::sp<IVoldCheckpointListener>>();
+    }
+
+    LOG(DEBUG) << "notifyCheckpointListeners notified " << results[NotifyResult::SUCCESS]
+               << " listeners (" << results[NotifyResult::BINDER_DEAD] << " dead, "
+               << results[NotifyResult::CALL_FAILED] << " failed)";
 }
 
 bool NeedsCheckpoint() EXCLUSIVE_LOCKS_REQUIRED(isCheckpointingLock) {
@@ -870,8 +919,7 @@ Status cp_resetCheckpoint() {
     return Status::ok();
 }
 
-bool cp_registerCheckpointListener(
-        android::sp<android::system::vold::IVoldCheckpointListener> listener) {
+bool cp_registerCheckpointListener(android::sp<IVoldCheckpointListener> listener) {
     std::lock_guard<std::mutex> checkpointGuard(isCheckpointingLock);
     if (needsCheckpointWasCalled && !isCheckpointing) {
         // Either checkpoint already committed or we didn't need one
