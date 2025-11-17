@@ -275,20 +275,31 @@ static int FixupAppDir(const std::string& path, mode_t mode, uid_t uid, gid_t gi
         return ret;
     }
 
+    std::error_code ec;
     // Fixup all of its file entries
-    for (const auto& itEntry : fs::directory_iterator(path)) {
-        ret = lchown(itEntry.path().c_str(), uid, gid);
+    for (auto itEntry = fs::directory_iterator(path, ec); itEntry != fs::directory_iterator();
+         itEntry.increment(ec)) {
+        if (ec == std::errc::no_such_file_or_directory) {
+            LOG(WARNING) << "Skipping non-existent directory entry: " << itEntry->path();
+            ec.clear();
+            continue;
+        } else if (ec) {
+            LOG(ERROR) << "Failed to iterate dir: " << ec.message();
+            return -1;
+        }
+
+        ret = lchown(itEntry->path().c_str(), uid, gid);
         if (ret != 0) {
             return ret;
         }
 
-        ret = chmod(itEntry.path().c_str(), mode);
+        ret = chmod(itEntry->path().c_str(), mode);
         if (ret != 0) {
             return ret;
         }
 
         if (!IsSdcardfsUsed()) {
-            ret = SetQuotaProjectId(itEntry.path(), projectId);
+            ret = SetQuotaProjectId(itEntry->path(), projectId);
             if (ret != 0) {
                 return ret;
             }
