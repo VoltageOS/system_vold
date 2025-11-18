@@ -121,7 +121,6 @@ cc_library_static {
         "Benchmark.cpp",
         "Checkpoint.cpp",
         "CryptoType.cpp",
-        "EncryptInplace.cpp",
         "FileDeviceUtils.cpp",
         "FsCrypt.cpp",
         "IdleMaint.cpp",
