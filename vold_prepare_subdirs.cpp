@@ -162,8 +162,19 @@ static bool prepare_apex_subdirs(struct selabel_handle* sehandle, const std::str
         // skip any starting with "."
         if (name[0] == '.') continue;
 
-        if (!prepare_dir(sehandle, 0771, AID_ROOT, AID_SYSTEM, path + "/apexdata/" + name)) {
+        auto apexdata_path = path + "/apexdata/" + name;
+        if (!prepare_dir(sehandle, 0771, AID_ROOT, AID_SYSTEM, apexdata_path)) {
             return false;
+        }
+        if (strcmp(name, "com.android.wifi") == 0) {
+            auto wifi_apex_supplicant_path = apexdata_path + "/mainline_supplicant";
+            auto wifi_apex_supplicant_wpa_path = wifi_apex_supplicant_path + "/wpa";
+            if (!prepare_dir(sehandle, 0700, AID_WIFI, AID_WIFI, wifi_apex_supplicant_path)) {
+                return false;
+            }
+            if (!prepare_dir(sehandle, 0700, AID_WIFI, AID_WIFI, wifi_apex_supplicant_wpa_path)) {
+                return false;
+            }
         }
     }
     return true;
