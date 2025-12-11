@@ -16,8 +16,7 @@
 
 #include "RandUtils.h"
 
-#include <fcntl.h>
-#include <unistd.h>
+#include <openssl/rand.h>
 
 namespace android {
 namespace vold {
@@ -28,23 +27,10 @@ status_t ReadRandomBytes(size_t bytes, std::string& out) {
 }
 
 status_t ReadRandomBytes(size_t bytes, char* buf) {
-    int fd = TEMP_FAILURE_RETRY(open("/dev/urandom", O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
-    if (fd == -1) {
-        return -errno;
-    }
-
-    ssize_t n;
-    while ((n = TEMP_FAILURE_RETRY(read(fd, &buf[0], bytes))) > 0) {
-        bytes -= n;
-        buf += n;
-    }
-    close(fd);
-
-    if (bytes == 0) {
-        return OK;
-    } else {
+    if (RAND_bytes(reinterpret_cast<uint8_t*>(buf), bytes) != 1) {
         return -EIO;
     }
+    return OK;
 }
 
 status_t GenerateRandomUuid(std::string& out) {
