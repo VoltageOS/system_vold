@@ -32,6 +32,7 @@
 
 #include "KeyStorage.h"
 #include "Keystore.h"
+#include "RandUtils.h"
 #include "Utils.h"
 #include "VoldUtil.h"
 

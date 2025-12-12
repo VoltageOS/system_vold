@@ -888,42 +888,6 @@ pid_t ForkExecvpAsync(const std::vector<std::string>& args, char* context) {
     return pid;
 }
 
-status_t ReadRandomBytes(size_t bytes, std::string& out) {
-    out.resize(bytes);
-    return ReadRandomBytes(bytes, &out[0]);
-}
-
-status_t ReadRandomBytes(size_t bytes, char* buf) {
-    int fd = TEMP_FAILURE_RETRY(open("/dev/urandom", O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
-    if (fd == -1) {
-        return -errno;
-    }
-
-    ssize_t n;
-    while ((n = TEMP_FAILURE_RETRY(read(fd, &buf[0], bytes))) > 0) {
-        bytes -= n;
-        buf += n;
-    }
-    close(fd);
-
-    if (bytes == 0) {
-        return OK;
-    } else {
-        return -EIO;
-    }
-}
-
-status_t GenerateRandomUuid(std::string& out) {
-    status_t res = ReadRandomBytes(16, out);
-    if (res == OK) {
-        out[6] &= 0x0f; /* clear version        */
-        out[6] |= 0x40; /* set to version 4     */
-        out[8] &= 0x3f; /* clear variant        */
-        out[8] |= 0x80; /* set to IETF variant  */
-    }
-    return res;
-}
-
 status_t HexToStr(const std::string& hex, std::string& str) {
     str.clear();
     bool even = true;
