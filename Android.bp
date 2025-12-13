@@ -40,7 +40,7 @@ cc_defaults {
         "libfs_mgr",
         "libvold_binder",
         "android.system.vold-V1-cpp",
-        "libcasefoldingremover"
+        "libcasefoldingremover",
     ],
     shared_libs: [
         "android.hardware.boot@1.0",
@@ -136,6 +136,7 @@ cc_library_static {
         "NetlinkManager.cpp",
         "NvmeDeviceUtils.cpp",
         "Process.cpp",
+        "RandUtils.cpp",
         "Utils.cpp",
         "VendorVoldNativeService.cpp",
         "VoldNativeService.cpp",
