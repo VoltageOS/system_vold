@@ -93,6 +93,11 @@ status_t Format(const std::string& source, bool is_zoned,
         cmd.emplace_back("extra_attr");
     }
 
+    if (android::base::GetBoolProperty("external_storage.packedssa.enabled", false)) {
+        cmd.emplace_back("-O");
+        cmd.emplace_back("packed_ssa");
+    }
+
     const bool needs_casefold =
             android::base::GetBoolProperty("external_storage.casefold.enabled", false);
     if (needs_casefold) {
