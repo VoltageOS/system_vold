@@ -363,7 +363,19 @@ void abort_metadata_file() {
 
 void cp_abortChanges(const std::string& message, bool retry) {
     if (!cp_needsCheckpoint()) return;
-    if (!retry) abort_metadata_file();
+    if (!retry) {
+        abort_metadata_file();
+        auto module = BootControlClient::WaitForService();
+        if (module) {
+            int currSlot = module->GetCurrentSlot();
+            auto cr = module->MarkSlotUnbootable(currSlot);
+            if (!cr.success)
+                LOG(WARNING) << "Mark current slot: " << currSlot << " unbootable failed!";
+            else
+                LOG(INFO) << "Marked current slot: " << currSlot << " unbootable.";
+        }
+    }
+
     android_reboot(ANDROID_RB_RESTART2, 0, message.c_str());
 }
 
