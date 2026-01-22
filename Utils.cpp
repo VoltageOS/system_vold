@@ -45,6 +45,7 @@
 #include <sys/statvfs.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
+#include <sys/vfs.h>
 #include <sys/wait.h>
 #include <sys/xattr.h>
 #include <unistd.h>
@@ -227,6 +228,15 @@ int SetQuotaInherit(const std::string& path) {
     return 0;
 }
 
+bool IsLegacyUserdata(const std::string& path) {
+    struct statfs s;
+    if (statfs(path.c_str(), &s) != 0) {
+        PLOG(WARNING) << "statfs failed for " << path;
+        return false;
+    }
+    return (s.f_type == EXT4_SUPER_MAGIC);
+}
+
 int SetQuotaProjectId(const std::string& path, long projectId) {
     struct fsxattr fsx;
 
@@ -245,6 +255,12 @@ int SetQuotaProjectId(const std::string& path, long projectId) {
     fsx.fsx_projid = projectId;
     ret = ioctl(fd, FS_IOC_FSSETXATTR, &fsx);
     if (ret == -1) {
+        int err = errno;
+        if (IsLegacyUserdata(path) && (err == EINVAL || err == ENOTTY || err == EOPNOTSUPP)) {
+            LOG(WARNING) << "Project quota not supported on " << path
+                         << " (errno=" << err << "), skipping for legacy userdata";
+            return 0; // swallow
+        }
         PLOG(ERROR) << "Failed to set project id on " << path;
         return ret;
     }
