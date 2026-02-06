@@ -74,6 +74,7 @@ interface IVold {
                          float dirtyReclaimRate, float reclaimWeight,
                          int gcPeriod, int minGCSleepTime,
                          int targetDirtyRatio);
+    void setMaxLockElapsedTime(int maxTime);
     void refreshLatestWrite();
     int getWriteAmount();
 

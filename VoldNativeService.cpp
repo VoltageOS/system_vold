@@ -565,6 +565,14 @@ binder::Status VoldNativeService::setGCUrgentPace(int32_t neededSegments,
     return Ok();
 }
 
+binder::Status VoldNativeService::setMaxLockElapsedTime(int32_t maxTime) {
+    ENFORCE_SYSTEM_OR_ROOT;
+    ACQUIRE_LOCK;
+
+    SetMaxLockElapsedTime(maxTime);
+    return Ok();
+}
+
 binder::Status VoldNativeService::refreshLatestWrite() {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_LOCK;
