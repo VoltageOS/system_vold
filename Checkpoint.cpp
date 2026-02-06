@@ -312,9 +312,25 @@ Status cp_commitChanges() {
         if (fstab_rec->fs_mgr_flags.checkpoint_fs) {
             if (fstab_rec->fs_type == "f2fs") {
                 std::string options = mount_rec.fs_options + ",discard,checkpoint=enable";
+
+                auto start_time = std::chrono::steady_clock::now();
                 if (mount(mount_rec.blk_device.c_str(), mount_rec.mount_point.c_str(), "none",
                           MS_REMOUNT | fstab_rec->flags, options.c_str())) {
                     return error(EINVAL, "Failed to remount");
+                }
+                auto end_time = std::chrono::steady_clock::now();
+
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time -
+                                                                                      start_time);
+                int64_t latency_ms = duration.count();
+
+                LOG(INFO) << "Remount on " << mount_rec.mount_point << " took " << latency_ms
+                          << " ms.";
+
+                std::string latency_str = std::to_string(latency_ms);
+                if (!android::base::SetProperty("vold.udc.enable_checkpoint.latency.ms",
+                                                latency_str)) {
+                    LOG(WARNING) << "Failed to set property vold.udc.enable_checkpoint.latency.ms";
                 }
             }
         } else if (fstab_rec->fs_mgr_flags.checkpoint_blk && isBow) {
