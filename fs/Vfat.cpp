@@ -69,7 +69,9 @@ status_t Check(const std::string& source) {
         cmd.push_back(source);
 
         // Fat devices are currently always untrusted
-        rc = ForkExecvpTimeout(cmd, kUntrustedFsckSleepTime, sFsckUntrustedContext);
+        rc = ForkExecvpTimeout(
+            cmd, GetTimeoutForUntrustedStorage(source, UntrustedStorageTimeoutType::kFsck),
+            sFsckUntrustedContext);
         if (rc < 0) {
             LOG(ERROR) << "Filesystem check failed due to fork error";
             errno = EIO;
@@ -221,7 +223,9 @@ status_t Mount(const std::string& source, const std::string& target, bool ro, bo
                bool executable, int ownerUid, int ownerGid, int permMask, bool createLost) {
     struct mount_args args = {source,   target,   ro,       remount,   executable,
                               ownerUid, ownerGid, permMask, createLost};
-    return ForkTimeout(DoMountWrapper, &args, kUntrustedMountSleepTime);
+
+    return ForkTimeout(DoMountWrapper, &args,
+                       GetTimeoutForUntrustedStorage(source, UntrustedStorageTimeoutType::kMount));
 }
 
 status_t Format(const std::string& source, unsigned long numSectors) {
