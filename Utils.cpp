@@ -1994,5 +1994,21 @@ status_t PrepareMountDirForUser(userid_t user_id) {
     return result;
 }
 
+std::chrono::seconds GetTimeoutForUntrustedStorage(const std::string& source,
+                                                   UntrustedStorageTimeoutType type) {
+    uint64_t size_bytes = 0;
+    if (GetBlockDevSize(source, &size_bytes) != 0) {
+        PLOG(ERROR) << "Failed to get size of " << source;
+    }
+    bool is_large = size_bytes > kUntrustedStorageSizeThreshold;
+
+    switch (type) {
+        case UntrustedStorageTimeoutType::kFsck:
+            return is_large ? kUntrustedFsckSleepTimeLarge : kUntrustedFsckSleepTime;
+        case UntrustedStorageTimeoutType::kMount:
+            return is_large ? kUntrustedMountSleepTimeLarge : kUntrustedMountSleepTime;
+    }
+}
+
 }  // namespace vold
 }  // namespace android
