@@ -782,6 +782,13 @@ binder::Status VoldNativeService::commitChanges() {
     return cp_commitChanges();
 }
 
+binder::Status VoldNativeService::syncStorage() {
+    ENFORCE_SYSTEM_OR_ROOT;
+    // No lock needed for global sync()
+    sync();
+    return binder::Status::ok();
+}
+
 binder::Status VoldNativeService::prepareCheckpoint() {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_LOCK;

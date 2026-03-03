@@ -112,6 +112,7 @@ interface IVold {
     boolean isCheckpointing();
     void abortChanges(in @utf8InCpp String device, boolean retry);
     void commitChanges();
+    void syncStorage();
     void prepareCheckpoint();
     void restoreCheckpoint(@utf8InCpp String device);
     void restoreCheckpointPart(@utf8InCpp String device, int count);
