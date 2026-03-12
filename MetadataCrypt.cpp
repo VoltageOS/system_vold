@@ -347,8 +347,11 @@ bool fscrypt_mount_metadata_encrypted(const std::string& blk_device, const std::
     }
 
     auto default_metadata_key_dir = data_rec->metadata_key_dir;
-    if (!user_devices.empty()) {
+    auto use_subdirs = false;
+    if (!user_devices.empty() &&
+        (should_format || pathExists(default_metadata_key_dir + "/default"))) {
         default_metadata_key_dir = default_metadata_key_dir + "/default";
+        use_subdirs = true;
     }
     auto gen = needs_encrypt ? makeGen(options) : neverGen();
     KeyBuffer key;
@@ -370,6 +373,10 @@ bool fscrypt_mount_metadata_encrypted(const std::string& blk_device, const std::
     for (auto& device : user_devices) {
         std::string name = Basename(device);
         auto metadata_key_dir = data_rec->metadata_key_dir + "/" + name;
+
+        if (!use_subdirs) {
+            break;
+        }
 
         if (!read_key(metadata_key_dir, gen, false, &key)) {
             LOG(ERROR) << "read_key failed with zoned device: " << device;
@@ -405,7 +412,7 @@ bool fscrypt_mount_metadata_encrypted(const std::string& blk_device, const std::
             }
             LOG(DEBUG) << "Format of " << crypto_blkdev << " for " << mount_point << " succeeded.";
         } else {
-            if (!user_devices.empty()) {
+            if (!user_devices.empty() && fs_mgr_is_f2fs(blk_device)) {
                 LOG(ERROR) << "encrypt_inplace cannot support zoned or userdata_exp device; should "
                               "format it.";
                 return false;
