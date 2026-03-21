@@ -38,17 +38,8 @@ namespace vold {
 static const char* kVoldAppDataIsolationEnabled = "persist.sys.vold_app_data_isolation_enabled";
 static const char* kExternalStorageSdcardfs = "external_storage.sdcardfs.enabled";
 
-/*
- * Threshold for untrusted external storage devices.
- * For larger storage devices, use a relaxed timeout value for fsck and mount.
- */
-static constexpr uint64_t kUntrustedStorageSizeThreshold = 512ULL * 1024 * 1024 * 1024;
-
 static constexpr std::chrono::seconds kUntrustedFsckSleepTime(45);
-static constexpr std::chrono::seconds kUntrustedFsckSleepTimeLarge(90);
 static constexpr std::chrono::seconds kUntrustedMountSleepTime(20);
-static constexpr std::chrono::seconds kUntrustedMountSleepTimeLarge(40);
-
 
 /* SELinux contexts used depending on the block device type */
 extern char* sBlkidContext;
@@ -231,14 +222,6 @@ bool IsFuseBpfEnabled();
 std::pair<android::base::unique_fd, std::string> OpenDirInProcfs(std::string_view path);
 
 status_t PrepareMountDirForUser(userid_t user_id);
-
-enum class UntrustedStorageTimeoutType {
-    kFsck,
-    kMount,
-};
-
-std::chrono::seconds GetTimeoutForUntrustedStorage(const std::string& source,
-                                                   UntrustedStorageTimeoutType type);
 
 }  // namespace vold
 }  // namespace android

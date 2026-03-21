@@ -44,9 +44,7 @@ status_t Check(const std::string& source) {
     cmd.push_back("-y");
     cmd.push_back(source);
 
-    int rc = ForkExecvpTimeout(
-        cmd, GetTimeoutForUntrustedStorage(source, UntrustedStorageTimeoutType::kFsck),
-        sFsckUntrustedContext);
+    int rc = ForkExecvpTimeout(cmd, kUntrustedFsckSleepTime, sFsckUntrustedContext);
     if (rc == 0) {
         LOG(INFO) << "Check OK";
         return 0;
@@ -97,8 +95,7 @@ int DoMountWrapper(void* args) {
 status_t Mount(const std::string& source, const std::string& target, int ownerUid, int ownerGid,
                int permMask) {
     struct mount_args args = {source, target, ownerUid, ownerGid, permMask};
-    return ForkTimeout(DoMountWrapper, &args,
-                       GetTimeoutForUntrustedStorage(source, UntrustedStorageTimeoutType::kMount));
+    return ForkTimeout(DoMountWrapper, &args, kUntrustedMountSleepTime);
 }
 
 status_t Format(const std::string& source) {
