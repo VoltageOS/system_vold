@@ -41,6 +41,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <android_vold_flags.h>
+#include <algorithm>
 
 using android::base::GetBoolProperty;
 using android::base::StringPrintf;
